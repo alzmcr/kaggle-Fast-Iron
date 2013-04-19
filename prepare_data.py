@@ -1,109 +1,107 @@
 from collections import defaultdict
 import numpy as np
 import pandas as pd
-import util
-from pandas import concat
-from pandas.stats.moments import expanding_mean, expanding_count, expanding_median
-import datetime
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.externals import joblib
+import time
 
-## SET INPUT DATA FILE
-## CONFIGURATION
-trainData = "Data\\TrainAndValid.csv"
-testData = "Data\\Test.csv"
-appendixData = "Data\\Machine_Appendix.csv"
+def rsmle(train,test):
+    return np.sqrt(np.mean(pow(np.log(test+1) - np.log(train+1),2)))
+
+## SWITCH TRAIN MODEL ON\OFF
+## If switched off, model need to be trained
+trainGB_models = True
+trainRF_models = True
+dumpModels = True
+
+## PREDICT ON\OFF
+make_prediction = True
+
+print "loading data"
+train = pd.DataFrame.from_csv("DataProcessed\\TrainMoments.csv")
+test = pd.DataFrame.from_csv("DataProcessed\\TestMoments.csv")
+train_fea = pd.DataFrame.from_csv("DataProcessed\\TrainMoments_fea.csv")
+test_fea = pd.DataFrame.from_csv("DataProcessed\\TestMoments_fea.csv")
+
+## EXTRA FEATURE
+train_fea['YearToSale'] = train_fea['SaleYear'] - train_fea['YearMade']
+test_fea['YearToSale'] = test_fea['SaleYear'] - test_fea['YearMade']
 ##
 
-def get_date_dataframe(date_column):
-    return pd.DataFrame({
-        "SaleYear": [d.year for d in date_column],
-        "SaleMonth": [d.month for d in date_column],
-        "SaleDay": [d.day for d in date_column]
-        }, index=date_column.index)
+train = train['SalePrice']
 
-def handler(grouped):
-    se = grouped.set_index('saledate')['SalePrice'].sort_index()
-    # se is the (ordered) time series of sales restricted to a single basket
-    # we can now create a dataframe by combining different metrics
-    conc = concat(
-        {
-            'MeanToDate': expanding_mean(se).shift(1).fillna(method='ffill'), # cumulative mean
-            'MedianToDate': expanding_median(se).shift(1).fillna(method='ffill'), # cumulative mean
-            'MaxToDate': se.cummax().shift(1).fillna(method='ffill'),         # cumulative max
-            'MinToDate': se.cummin().shift(1).fillna(method='ffill'),         # cumulative max
-            'PrevSale': se.shift(1).fillna(method='ffill'),          # previous sale
-            'SaleCount': expanding_count(se) # cumulative count
-        },
-        axis=1
-     )
-    # bring back SalesID, needed for join
-    se = grouped.set_index('saledate')['SalesID'].sort_index()
-    conc['SalesID'] = se
-    return conc
+colToDropGB1 = ['PrevSale','ProductGroupDesc', 'MachineID','SaleYear']
+colToDropGB2 = ['SaleCount', 'MaxToDate', 'PrevSale', 'ProductGroupDesc', 'MachineID',
+                'Pad_Type', 'Turbocharged', 'Backhoe_Mounting', 'Differential_Type', 'SaleYear']
 
-print "loading training and test set"
-train = pd.read_csv(trainData), converters={"saledate": parse})
-test = pd.read_csv(testData),converters={"saledate": parse})
+colToDropRF1 = ['MachineID','SaleDay','MfgYear','SaleYear','PrevSale','SaleCount',
+                'MeanToDate_Machine','MedianToDate_Machine','MaxToDate_Machine','MinToDate_Machine']
+colToDropRF2 = ['MachineID','SaleDay','MfgYear','SaleYear','PrevSale','SaleCount',
+                'MeanToDate_Machine','MedianToDate_Machine','MaxToDate_Machine','MinToDate_Machine',
+                'MeanToDate']
 
-print "loading & appending appendix data"
-appendix = pd.read_csv(appendixData)
-train = train.reset_index().merge(appendix, on='MachineID', suffixes=('', '_train'), how="left").set_index('index')
-test = test.reset_index().merge(appendix, on='MachineID', suffixes=('', '_train'), how="left").set_index('index')
+tot_init_time = time.time()
+## RANDOM FOREST REGRESSORS - set trainRF_models for switch training on\off
+rf1 = RandomForestRegressor(n_estimators=150, n_jobs=1, min_samples_leaf = 4,
+                            compute_importances = True, random_state=7354)
+rf2 = RandomForestRegressor(n_estimators=150, n_jobs=1, min_samples_leaf = 4,
+                            compute_importances = True, random_state=7354)
+if trainRF_models:
+    print "fitting random forest regressor"
+    init_time = time.time()
+    rf1.fit(train_fea.drop(colToDropRF1, axis=1), train)
+    print "RF1 done - elapsed time"+str((time.time() - init_time) / 60)
+    init_time = time.time()
+    rf2.fit(train_fea.drop(colToDropRF2, axis=1), train)
+    print "RF2 done - elapsed time"+str((time.time() - init_time) / 60)
+    ## DUMP MODELS
+    if dumpModels:
+        joblib.dump(rf1,'Models\\rf1_final.pk1')
+        joblib.dump(rf2,'Models\\rf2_final.pk1')
+else:
+    print "loading serialized model - RF"
+    rf1 = joblib.load('Models\\rf1_final.pk1')
+    rf2 = joblib.load('Models\\rf2_final.pk1')    
 
-## dropping duplicates - dropping appendix duplicates
-dupsToDrop = ['ModelID_train','fiModelDesc_train','fiBaseModel_train',
-        'fiSecondaryDesc_train','fiModelSeries_train','fiModelDescriptor_train',
-        'fiProductClassDesc_train','ProductGroup_train','ProductGroupDesc_train',
-        ## description fields
-        'ProductGroup','fiManufacturerID'
-        ]
-train = train.drop(dupsToDrop,axis=1)
-test = test.drop(dupsToDrop,axis=1)
+### GRADIENT BOOSTING REGRESSORS - set trainGB_models for switch training on\off
+gb1 = GradientBoostingRegressor(n_estimators=400,max_depth=8, random_state=9874, loss='huber')
+gb2 = GradientBoostingRegressor(n_estimators=400,max_depth=8, random_state=9874, loss='huber')
 
-moments = train.append(test)
-# test will be appended to train, to populate the moments for the test set
-# this using the fill forward option for the NA in the dataset
-# akward method, but in rush and new to python
-print "creating moments for Models"
-momentModels = moments.groupby('ModelID').apply(handler).reset_index()
-print "creating moments for Machines"
-momentMachines = moments.groupby('MachineID').apply(handler).reset_index()
+if trainGB_models:
+    print "fitting gradient boosting regressor"
+    init_time = time.time()
+    gb1.fit(train_fea.drop(colToDropGB1, axis=1), train)
+    print "GB1 done - elapsed time"+str((time.time() - init_time) / 60)
+    init_time = time.time()
+    gb2.fit(train_fea.drop(colToDropGB2, axis=1), train)
+    print "GB2 done - elapsed time"+str((time.time() - init_time) / 60)
+    ## DUMP MODELS
+    if dumpModels:
+        joblib.dump(gb1,'Models\\gb1_final.pk1')
+        joblib.dump(gb2,'Models\\gb2_final.pk1')
+else:
+    print "loading serialized model - GB"
+    gb1 = joblib.load('Models\\gb1_final.pk1')
+    gb2 = joblib.load('Models\\gb2_final.pk1')
+    
+print "elapsed time"+str((time.time() - tot_init_time) / 60)
 
-## merging dataframes, including moments for models and machines
-test = test.reset_index().merge(momentModels, on="SalesID", suffixes=('', '_Model'), how="left").set_index('index')
-test = test.reset_index().merge(momentMachines, on="SalesID", suffixes=('', '_Machine'), how="left").set_index('index')
-train = train.reset_index().merge(momentModels, on="SalesID", suffixes=('', '_Model'), how="left").set_index('index')
-train = train.reset_index().merge(momentMachines, on="SalesID", suffixes=('', '_Machine'), how="left").set_index('index')
+## PREDICTION
+if make_prediction:
+    pred1_rf = rf1.predict(test_fea.drop(colToDropRF1, axis=1))
+    pred2_rf = rf2.predict(test_fea.drop(colToDropRF2, axis=1))
+    pred1_gb = gb1.predict(test_fea.drop(colToDropGB1, axis=1))
+    pred2_gb = gb2.predict(test_fea.drop(colToDropGB2, axis=1))    
+    
+    ## blended weighted results given validation set results - RISKYYYYYYYYYYY!!!111
+    ## GB had 0.2256 // RF had 0.2337 >>> 0.2239 combined with 70/30 ratio
+    ## CHE DIO CE LA MANDI BUONA!!! :)
+    pred_FINAL = ((pred1_rf+pred2_rf)*0.15 + 0.35*(pred1_gb+pred2_gb))
+        
+    print "printing submission to file"
+    test['SalePrice'] = pred_FINAL
+    test[['SalesID', 'SalePrice']].to_csv('current_prediction.csv', index=False)
 
-columns = set(train.columns)
-columns.remove("SalesID")
-columns.remove("SalePrice")
-columns.remove("saledate")
 
-## remove duplicate columns, due to join
-columns.remove("ModelID_Model")
-columns.remove("saledate_Model")
-columns.remove("MachineID_Machine")
-columns.remove("saledate_Machine")
-
-train_fea = get_date_dataframe(train["saledate"])
-test_fea = get_date_dataframe(test["saledate"])
-
-print "creating feature"
-for col in columns:
-    if train[col].dtype == np.dtype('object'):
-        s = np.unique(train[col].fillna(-1).values)
-        mapping = pd.Series([x[0] for x in enumerate(s)], index = s)
-        train_fea = train_fea.join(train[col].map(mapping).fillna(-1))
-        test_fea = test_fea.join(test[col].map(mapping).fillna(-1))
-    else:
-        train_fea = train_fea.join(train[col].fillna(0))
-        test_fea = test_fea.join(test[col].fillna(0))
-
-print "print dataframe to files"
-## writing dataset in csv
-
-train.to_csv("DataProcessed\\TrainMoments.csv")
-train_fea.to_csv("DataProcessed\\TrainMoments_fea.csv")
-test.to_csv("DataProcessed\\TestMoments.csv")
-test_fea.to_csv("DataProcessed\\TestMoments_fea.csv")
 
