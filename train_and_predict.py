@@ -4,7 +4,6 @@ import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.externals import joblib
-import util
 import time
 
 def rsmle(train,test):
@@ -14,19 +13,20 @@ def rsmle(train,test):
 ## If switched off, model need to be trained
 trainGB_models = True
 trainRF_models = True
+dumpModels = True
+
+## PREDICT ON\OFF
+make_prediction = True
 
 print "loading data"
 train = pd.DataFrame.from_csv("DataProcessed\\TrainMoments.csv")
-test = pd.DataFrame.from_csv("DataProcessed\\ValidMoments.csv")
+test = pd.DataFrame.from_csv("DataProcessed\\TestMoments.csv")
 train_fea = pd.DataFrame.from_csv("DataProcessed\\TrainMoments_fea.csv")
-test_fea = pd.DataFrame.from_csv("DataProcessed\\ValidMoments_fea.csv")
+test_fea = pd.DataFrame.from_csv("DataProcessed\\TestMoments_fea.csv")
 
 ## EXTRA FEATURE
 train_fea['YearToSale'] = train_fea['SaleYear'] - train_fea['YearMade']
 test_fea['YearToSale'] = test_fea['SaleYear'] - test_fea['YearMade']
-
-
-
 ##
 
 train = train['SalePrice']
@@ -55,13 +55,17 @@ if trainRF_models:
     init_time = time.time()
     rf2.fit(train_fea.drop(colToDropRF2, axis=1), train)
     print "RF2 done - elapsed time"+str((time.time() - init_time) / 60)
+    ## DUMP MODELS
+    if dumpModels:
+        joblib.dump(rf1,'Models\\rf1_final.pk1')
+        joblib.dump(rf2,'Models\\rf2_final.pk1')
 else:
     print "loading serialized model - RF"
-    rf1 = joblib.load('Models\\')
-    rf2 = joblib.load('Models\\')    
+    rf1 = joblib.load('Models\\rf1_final.pk1')
+    rf2 = joblib.load('Models\\rf2_final.pk1')    
 
 ### GRADIENT BOOSTING REGRESSORS - set trainGB_models for switch training on\off
-gb1 = GradientBoostingRegressor(n_estimators=400,max_depth=8, random_state=7354, loss='huber')
+gb1 = GradientBoostingRegressor(n_estimators=400,max_depth=8, random_state=9874, loss='huber')
 gb2 = GradientBoostingRegressor(n_estimators=400,max_depth=8, random_state=9874, loss='huber')
 
 if trainGB_models:
@@ -72,25 +76,32 @@ if trainGB_models:
     init_time = time.time()
     gb2.fit(train_fea.drop(colToDropGB2, axis=1), train)
     print "GB2 done - elapsed time"+str((time.time() - init_time) / 60)
+    ## DUMP MODELS
+    if dumpModels:
+        joblib.dump(gb1,'Models\\gb1_final.pk1')
+        joblib.dump(gb2,'Models\\gb2_final.pk1')
 else:
     print "loading serialized model - GB"
-    gb1 = joblib.load('Models\\')
-    gb2 = joblib.load('Models\\')
-    
-pred1_rf = rf1.predict(test_fea.drop(colToDropRf1, axis=1))
-pred2_rf = rf2.predict(test_fea.drop(colToDropRf2, axis=1))
-pred_rf = predictions_rf = (pred1_rf+pred2_rf)/2 # average random forest predictions
-pred_gb1 = gb1.predict(test_fea.drop(colToDropGB1, axis=1))
-pred_gb2 = gb2.predict(test_fea.drop(colToDropGB2, axis=1))    
-pred_gb = predictions_gb = (pred1_gb+pred2_gb)/2 # average gradient boosting predictions
-
-pred_FINAL = (pred_rf + pred_gb)/2 # average both predictions
+    gb1 = joblib.load('Models\\gb1_final.pk1')
+    gb2 = joblib.load('Models\\gb2_final.pk1')
     
 print "elapsed time"+str((time.time() - tot_init_time) / 60)
 
-print "printing submission to file"
-test['SalePrice'] = pred_FINAL
-test[['SalesID', 'SalePrice']].to_csv('current_prediction.csv', index=False)
+## PREDICTION
+if make_prediction:
+    pred1_rf = rf1.predict(test_fea.drop(colToDropRF1, axis=1))
+    pred2_rf = rf2.predict(test_fea.drop(colToDropRF2, axis=1))
+    pred1_gb = gb1.predict(test_fea.drop(colToDropGB1, axis=1))
+    pred2_gb = gb2.predict(test_fea.drop(colToDropGB2, axis=1))    
+    
+    ## blended weighted results given validation set results - RISKYYYYYYYYYYY!!!111
+    ## GB had 0.2256 // RF had 0.2337 >>> 0.2239 combined with 70/30 ratio
+    ## CHE DIO CE LA MANDI BUONA!!! :)
+    pred_FINAL = ((pred1_rf+pred2_rf)*0.15 + 0.35*(pred1_gb+pred2_gb))
+        
+    print "printing submission to file"
+    test['SalePrice'] = pred_FINAL
+    test[['SalesID', 'SalePrice']].to_csv('current_prediction.csv', index=False)
 
 
 
