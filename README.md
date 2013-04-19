@@ -3,12 +3,9 @@ Fast-Iron
 
 Kaggle Blue Book for Bulldozers Competition
 
-###The hardware / OS platform you used
 Windows 7 64bit on Intel QuadCore with 12GB RAM
-
-###Any necessary 3rd-party software (+ installation steps)
 Python 2.7
-Pandas,Numpy,Scikit-Learn 0.13.1
+Pandas, Numpy ,Scikit-Learn 0.13.1
 
 ##How to train your model
 ###How to make predictions on a new test set.
