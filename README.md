@@ -2,16 +2,12 @@ Fast-Iron
 =========
 Kaggle Blue Book for Bulldozers Competition
 
-
-Windows 7 64bit on Intel QuadCore with 12GB RAM
-Python 2.7 with Pandas, Numpy ,Scikit-Learn 0.13.1
+Windows 7 64bit on Intel QuadCore with 12GB RAM, Python 2.7 with Pandas, Numpy ,Scikit-Learn 0.13.1
 
 ##How to train your model
 ###How to make predictions on a new test set.
 Before train make predictions, data need to be pre-processed, step below:
-
 1) Place the training, appendix and test data in the Data folder
-
 2) Edit prepare_data.py and change the following line with names of training, appendix and test data
 
       trainData = "Data\\TrainAndValid.csv"
