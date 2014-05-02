@@ -4,7 +4,6 @@ Kaggle Blue Book for Bulldozers Competition
 
 
 Windows 7 64bit on Intel QuadCore with 12GB RAM
-
 Python 2.7 with Pandas, Numpy ,Scikit-Learn 0.13.1
 
 ##How to train your model
